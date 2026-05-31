@@ -487,16 +487,16 @@ class OpenRouterImageGenNode:
         if not model or not model.strip():
             raise ValueError("Model is required. Connect an OpenRouter Model List node to the model input.")
 
+        # Build the user message; multimodal image models infer image output from the prompt
         user_content = prompt
+        if width and height:
+            user_content += f"\n\nTarget dimensions: {width}x{height} pixels."
         if negative_prompt.strip():
             user_content += f"\n\nNegative prompt: {negative_prompt.strip()}"
 
         payload = {
             "model": model.strip(),
             "messages": [{"role": "user", "content": user_content}],
-            "modalities": ["image"],
-            "max_width": width,
-            "max_height": height,
         }
         if send_seed and seed != 0:
             payload["seed"] = seed
