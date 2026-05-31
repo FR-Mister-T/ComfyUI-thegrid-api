@@ -176,11 +176,10 @@ class OpenRouterChatNode:
             },
             "optional": {
                 "model_override": ("STRING", {
-                    "default": "",
+                    "forceInput": True,
                     "tooltip": (
-                        "Exact model ID (e.g. openai/gpt-4o). "
-                        "Overrides the dropdown when non-empty. "
-                        "Wire an OpenRouterModelList output here."
+                        "Wire the model_name output of OpenRouter Model List here. "
+                        "Overrides the dropdown when connected."
                     ),
                 }),
                 "system_prompt": ("STRING", {"default": "", "multiline": True}),
@@ -317,8 +316,8 @@ class OpenRouterImageGenNode:
             },
             "optional": {
                 "model_override": ("STRING", {
-                    "default": "",
-                    "tooltip": "Exact model ID override. Wire an OpenRouterModelList output here.",
+                    "forceInput": True,
+                    "tooltip": "Wire the model_name output of OpenRouter Model List here. Overrides the dropdown when connected.",
                 }),
                 "negative_prompt": ("STRING", {
                     "default": "",
