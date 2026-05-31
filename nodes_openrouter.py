@@ -22,7 +22,7 @@ _DEFAULT_IMAGE_MODELS = [
 ]
 
 _MODELS_CACHE: dict = {"data": None, "ts": 0.0}
-_CACHE_TTL = 300.0  # seconds
+_CACHE_TTL = 300.0
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +92,7 @@ def _model_ids(
 
 
 # ---------------------------------------------------------------------------
-# Response helpers
+# Image response helpers
 # ---------------------------------------------------------------------------
 
 def _load_image(url_or_data_uri: str):
@@ -103,7 +103,6 @@ def _load_image(url_or_data_uri: str):
 
 
 def _extract_image_from_response(data: dict):
-    # Format 1: choices[0].message.content is a list of content blocks
     choices = data.get("choices") or []
     if choices:
         content = choices[0].get("message", {}).get("content")
@@ -116,7 +115,6 @@ def _extract_image_from_response(data: dict):
         elif isinstance(content, str) and content.startswith("data:image"):
             return _load_image(content)
 
-    # Format 2: top-level data array (DALL-E style)
     images = data.get("data") or []
     if images:
         entry = images[0]
@@ -136,21 +134,79 @@ def _extract_image_from_response(data: dict):
 # Nodes
 # ---------------------------------------------------------------------------
 
+class OpenRouterModelListNode:
+    CATEGORY = "OpenRouter"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        all_models = _model_ids(limit=500)
+        return {
+            "required": {
+                "model_select": (all_models, {
+                    "tooltip": (
+                        "Available models. "
+                        "Adjust the filters below — the list updates automatically."
+                    ),
+                }),
+                "free_only": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Show only zero-cost models",
+                }),
+                "modality_filter": (MODALITY_OPTIONS, {
+                    "default": "all",
+                    "tooltip": "Filter by output modality",
+                }),
+                "filter_text": ("STRING", {
+                    "default": "",
+                    "tooltip": "Substring filter on model ID (e.g. 'claude', 'flux', 'gpt-4o')",
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("model_name", "all_matches")
+    FUNCTION = "execute"
+
+    def execute(self, model_select, free_only, modality_filter, filter_text):
+        filtered = _model_ids(
+            free_only=free_only,
+            modality_filter=modality_filter,
+            filter_text=filter_text,
+            limit=500,
+        )
+        if not filtered:
+            raise RuntimeError(
+                "No models matched the current filters. "
+                "Try relaxing free_only or modality_filter."
+            )
+
+        # Use the COMBO selection if it passes the active filters; otherwise fall back to first match
+        if model_select in filtered:
+            model_name = model_select
+        else:
+            model_name = filtered[0]
+            print(
+                f"[OpenRouterModelList] '{model_select}' is not in the filtered list "
+                f"— using '{model_name}' instead."
+            )
+
+        return (model_name, "\n".join(filtered))
+
+
 class OpenRouterChatNode:
     CATEGORY = "OpenRouter"
 
     @classmethod
     def INPUT_TYPES(cls):
-        model_list = ["Manual Input"] + _model_ids()
         return {
             "required": {
                 "api_key": ("STRING", {
                     "default": "",
                     "tooltip": "Your OpenRouter API key — get one at openrouter.ai/keys",
                 }),
-                "model": (model_list, {
-                    "default": "Manual Input",
-                    "tooltip": "Select a model, or pick Manual Input and fill model_override",
+                "model": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "Connect the model_name output of an OpenRouter Model List node here",
                 }),
                 "user_prompt": ("STRING", {
                     "default": "",
@@ -163,7 +219,7 @@ class OpenRouterChatNode:
                     "step": 0.01,
                 }),
                 "max_tokens": ("INT", {
-                    "default": 1024,
+                    "default": 4096,
                     "min": 1,
                     "max": 32768,
                     "step": 1,
@@ -175,13 +231,6 @@ class OpenRouterChatNode:
                 }),
             },
             "optional": {
-                "model_override": ("STRING", {
-                    "forceInput": True,
-                    "tooltip": (
-                        "Wire the model_name output of OpenRouter Model List here. "
-                        "Overrides the dropdown when connected."
-                    ),
-                }),
                 "system_prompt": ("STRING", {"default": "", "multiline": True}),
                 "image": ("IMAGE", {
                     "tooltip": "Optional image for vision-capable models",
@@ -203,7 +252,6 @@ class OpenRouterChatNode:
         temperature,
         max_tokens,
         seed,
-        model_override="",
         system_prompt="",
         image=None,
         json_mode=False,
@@ -211,12 +259,8 @@ class OpenRouterChatNode:
     ):
         if not api_key.strip():
             raise ValueError("OpenRouter API key is required. Get one at openrouter.ai/keys")
-
-        active_model = model_override.strip() if model_override.strip() else model
-        if active_model == "Manual Input":
-            raise ValueError(
-                "Select a model from the dropdown or provide a model ID via model_override."
-            )
+        if not model or not model.strip():
+            raise ValueError("Model is required. Connect an OpenRouter Model List node to the model input.")
 
         if image is not None:
             b64 = tensor_to_base64(image)
@@ -233,7 +277,7 @@ class OpenRouterChatNode:
         messages.append({"role": "user", "content": user_content})
 
         payload = {
-            "model": active_model,
+            "model": model.strip(),
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -252,7 +296,7 @@ class OpenRouterChatNode:
             if image is not None:
                 debug_payload["messages"][-1]["content"][1]["image_url"]["url"] = "[base64 truncated]"
             print(f"[OpenRouterChat] POST {OPENROUTER_BASE}/chat/completions")
-            print(f"[OpenRouterChat] Model: {active_model}")
+            print(f"[OpenRouterChat] Model: {model.strip()}")
             print(f"[OpenRouterChat] Payload: {json.dumps(debug_payload, indent=2)}")
 
         resp = retry_request(
@@ -280,16 +324,15 @@ class OpenRouterImageGenNode:
 
     @classmethod
     def INPUT_TYPES(cls):
-        model_list = ["Manual Input"] + _model_ids(modality_filter="image")
         return {
             "required": {
                 "api_key": ("STRING", {
                     "default": "",
                     "tooltip": "Your OpenRouter API key — get one at openrouter.ai/keys",
                 }),
-                "model": (model_list, {
-                    "default": "Manual Input",
-                    "tooltip": "Image-generating model. Use model_override for a specific ID.",
+                "model": ("STRING", {
+                    "forceInput": True,
+                    "tooltip": "Connect the model_name output of an OpenRouter Model List node here",
                 }),
                 "prompt": ("STRING", {
                     "default": "",
@@ -315,10 +358,6 @@ class OpenRouterImageGenNode:
                 }),
             },
             "optional": {
-                "model_override": ("STRING", {
-                    "forceInput": True,
-                    "tooltip": "Wire the model_name output of OpenRouter Model List here. Overrides the dropdown when connected.",
-                }),
                 "negative_prompt": ("STRING", {
                     "default": "",
                     "multiline": True,
@@ -340,29 +379,23 @@ class OpenRouterImageGenNode:
         width,
         height,
         seed,
-        model_override="",
         negative_prompt="",
         debug=False,
     ):
         if not api_key.strip():
             raise ValueError("OpenRouter API key is required. Get one at openrouter.ai/keys")
-
-        active_model = model_override.strip() if model_override.strip() else model
-        if active_model == "Manual Input":
-            raise ValueError(
-                "Select a model from the dropdown or provide a model ID via model_override."
-            )
+        if not model or not model.strip():
+            raise ValueError("Model is required. Connect an OpenRouter Model List node to the model input.")
 
         user_content = prompt
         if negative_prompt.strip():
             user_content += f"\n\nNegative prompt: {negative_prompt.strip()}"
 
         payload = {
-            "model": active_model,
+            "model": model.strip(),
             "messages": [{"role": "user", "content": user_content}],
             "modalities": ["image"],
             "seed": seed,
-            # Dimensions — field names vary by model; include both common formats
             "max_width": width,
             "max_height": height,
         }
@@ -374,7 +407,7 @@ class OpenRouterImageGenNode:
 
         if debug:
             print(f"[OpenRouterImageGen] POST {OPENROUTER_BASE}/chat/completions")
-            print(f"[OpenRouterImageGen] Model: {active_model}")
+            print(f"[OpenRouterImageGen] Model: {model.strip()}")
             print(f"[OpenRouterImageGen] Payload: {json.dumps(payload, indent=2)}")
 
         resp = retry_request(
@@ -396,50 +429,6 @@ class OpenRouterImageGenNode:
 
         img_tensor = _extract_image_from_response(data)
         return (img_tensor, json.dumps(data))
-
-
-class OpenRouterModelListNode:
-    CATEGORY = "OpenRouter"
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "free_only": ("BOOLEAN", {
-                    "default": False,
-                    "tooltip": "Return only zero-cost models",
-                }),
-                "modality_filter": (MODALITY_OPTIONS, {
-                    "default": "all",
-                    "tooltip": "Filter by output modality (video/audio are provisioned for future nodes)",
-                }),
-                "filter_text": ("STRING", {
-                    "default": "",
-                    "tooltip": (
-                        "Substring filter on model ID (e.g. 'claude', 'flux', 'gpt-4o').\n"
-                        "Returns the first matching model as model_name."
-                    ),
-                }),
-            },
-        }
-
-    RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("model_name", "all_matches")
-    FUNCTION = "execute"
-
-    def execute(self, free_only, modality_filter, filter_text):
-        ids = _model_ids(
-            free_only=free_only,
-            modality_filter=modality_filter,
-            filter_text=filter_text,
-            limit=500,
-        )
-        if not ids:
-            raise RuntimeError(
-                "No OpenRouter models matched the current filters. "
-                "Try relaxing free_only or modality_filter."
-            )
-        return (ids[0], "\n".join(ids))
 
 
 NODE_CLASS_MAPPINGS = {
