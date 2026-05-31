@@ -128,9 +128,22 @@ def _extract_image_from_response(data: dict):
                     url = (item.get("image_url") or {}).get("url", "")
                     if url:
                         return _load_image(url)
-        elif isinstance(content, str) and content.startswith("data:image"):
-            return _load_image(content)
+                # Some providers embed base64 directly in a content block
+                if item.get("type") == "image" and item.get("source"):
+                    src = item["source"]
+                    if src.get("type") == "base64":
+                        return bytes_to_tensor(base64.b64decode(src["data"]))
+                    if src.get("type") == "url":
+                        return url_to_tensor(src["url"])
+        elif isinstance(content, str):
+            if content.startswith("data:"):
+                return _load_image(content)
+            # Plain URL string (many image-gen models return just a URL)
+            stripped = content.strip()
+            if stripped.startswith("http://") or stripped.startswith("https://"):
+                return url_to_tensor(stripped)
 
+    # DALL-E / OpenAI images endpoint style
     images = data.get("data") or []
     if images:
         entry = images[0]
@@ -139,10 +152,23 @@ def _extract_image_from_response(data: dict):
         if "url" in entry:
             return url_to_tensor(entry["url"])
 
+    # Build a diagnostic that reveals the actual content shape
+    diag_parts = [f"Top-level keys: {list(data.keys())}"]
+    if choices:
+        msg = choices[0].get("message", {})
+        c = msg.get("content")
+        if isinstance(c, list):
+            diag_parts.append(f"choices[0].message.content is a list of {len(c)} block(s) with types: {[i.get('type') for i in c]}")
+        elif isinstance(c, str):
+            diag_parts.append(f"choices[0].message.content is a string starting with: {c[:120]!r}")
+        else:
+            diag_parts.append(f"choices[0].message.content type: {type(c).__name__}")
+        diag_parts.append(f"finish_reason: {choices[0].get('finish_reason')!r}")
+
     raise RuntimeError(
         "Could not extract an image from the API response. "
-        f"Top-level keys: {list(data.keys())}. "
-        "Enable debug=True to print the full response and check the model's output format."
+        + " | ".join(diag_parts)
+        + " — enable debug=True to print the full response."
     )
 
 
