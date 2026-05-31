@@ -71,6 +71,13 @@ def extract_chat_text(data: dict, node_name: str = "") -> str:
 
     choices = data.get("choices") or []
     if not choices:
+        # Some providers return 200 with an error body instead of a proper HTTP error code
+        error = data.get("error") or {}
+        if error:
+            message = error.get("message") or str(error)
+            code = error.get("code", "")
+            code_tag = f" (code {code})" if code else ""
+            raise RuntimeError(f"{prefix}API error{code_tag}: {message}")
         raise RuntimeError(
             f"{prefix}API returned no choices. "
             f"Full response: {_json.dumps(data)}"

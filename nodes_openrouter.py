@@ -244,6 +244,7 @@ class OpenRouterChatNode:
                     "default": 0,
                     "min": 0,
                     "max": 0xFFFFFFFFFFFFFFFF,
+                    "tooltip": "Reproducibility seed. Leave at 0 to omit (required for JAX-based models such as Gemini).",
                 }),
             },
             "optional": {
@@ -297,8 +298,9 @@ class OpenRouterChatNode:
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
-            "seed": seed,
         }
+        if seed != 0:
+            payload["seed"] = seed  # omit when 0 — some providers (JAX/Gemini) reject per-request seeds
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
 
@@ -371,6 +373,7 @@ class OpenRouterImageGenNode:
                     "default": 0,
                     "min": 0,
                     "max": 0xFFFFFFFFFFFFFFFF,
+                    "tooltip": "Reproducibility seed. Leave at 0 to omit (required for JAX-based models such as Gemini).",
                 }),
             },
             "optional": {
@@ -411,10 +414,11 @@ class OpenRouterImageGenNode:
             "model": model.strip(),
             "messages": [{"role": "user", "content": user_content}],
             "modalities": ["image"],
-            "seed": seed,
             "max_width": width,
             "max_height": height,
         }
+        if seed != 0:
+            payload["seed"] = seed  # omit when 0 — some providers (JAX/Gemini) reject per-request seeds
 
         headers = {
             "Authorization": f"Bearer {api_key.strip()}",
