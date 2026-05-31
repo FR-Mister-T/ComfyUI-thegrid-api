@@ -10,16 +10,7 @@ OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
 MODALITY_OPTIONS = ["all", "text", "image", "video", "audio"]
 
-_DEFAULT_TEXT_MODELS = [
-    "openai/gpt-4o-mini",
-    "anthropic/claude-3-haiku",
-    "google/gemini-flash-1.5",
-]
-_DEFAULT_IMAGE_MODELS = [
-    "black-forest-labs/flux-1.1-pro",
-    "openai/gpt-image-1",
-    "stability/stable-diffusion-3",
-]
+_FALLBACK_LIMIT = 10  # models returned from unfiltered list when a filter yields nothing
 
 _MODELS_CACHE: dict = {"data": None, "ts": 0.0}
 _CACHE_TTL = 300.0
@@ -51,10 +42,16 @@ def _is_free(model: dict) -> bool:
 
 
 def _output_modality(model: dict) -> str:
-    modality = (model.get("architecture") or {}).get("modality") or ""
+    arch = model.get("architecture") or {}
+    # Prefer the explicit output_modalities array when present
+    out_mods = arch.get("output_modalities") or []
+    if out_mods:
+        return " ".join(str(m) for m in out_mods).lower()
+    # Fall back to the "input->output" modality string
+    modality = arch.get("modality") or ""
     if "->" in modality:
-        return modality.split("->", 1)[1].strip()
-    return ""
+        return modality.split("->", 1)[1].strip().lower()
+    return modality.lower()
 
 
 def _model_ids(
@@ -63,7 +60,8 @@ def _model_ids(
     filter_text: str = "",
     limit: int = 200,
 ) -> list:
-    models = _fetch_models()
+    all_models = _fetch_models()
+    models = all_models
 
     if free_only:
         models = [m for m in models if _is_free(m)]
@@ -86,7 +84,9 @@ def _model_ids(
         ids = ids[:limit]
 
     if not ids:
-        return _DEFAULT_IMAGE_MODELS if modality_filter == "image" else _DEFAULT_TEXT_MODELS
+        # Filters matched nothing — return first N real models from the live list
+        fallback = [m["id"] for m in all_models if m.get("id")]
+        return fallback[:_FALLBACK_LIMIT]
 
     return ids
 
