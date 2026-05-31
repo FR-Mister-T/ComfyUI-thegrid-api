@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "comfyui-thegrid-api"
+version = "1.0.0"
+description = "ComfyUI custom nodes for TheGrid.ai and OpenRouter cloud LLM and image APIs"
+license = { file = "LICENSE" }
+dependencies = ["requests", "pillow"]
+
+[project.urls]
+Repository = "https://github.com/user/ComfyUI-thegrid-api"
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "ComfyUI-TheGrid-API"
+Icon = ""
