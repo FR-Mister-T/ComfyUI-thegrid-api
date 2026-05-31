@@ -118,30 +118,61 @@ def _load_image(url_or_data_uri: str):
     return url_to_tensor(url_or_data_uri)
 
 
+def _url_in_str(s: str):
+    """Return s if it looks like a plain image URL, else None."""
+    s = s.strip()
+    if s.startswith("http://") or s.startswith("https://"):
+        return s
+    return None
+
+
 def _extract_image_from_response(data: dict):
     choices = data.get("choices") or []
     if choices:
-        content = choices[0].get("message", {}).get("content")
+        choice = choices[0]
+        msg = choice.get("message") or {}
+        content = msg.get("content")
+
         if isinstance(content, list):
             for item in content:
-                if item.get("type") == "image_url":
+                t = item.get("type")
+                if t == "image_url":
                     url = (item.get("image_url") or {}).get("url", "")
                     if url:
                         return _load_image(url)
-                # Some providers embed base64 directly in a content block
-                if item.get("type") == "image" and item.get("source"):
-                    src = item["source"]
+                if t == "image":
+                    src = item.get("source") or {}
                     if src.get("type") == "base64":
                         return bytes_to_tensor(base64.b64decode(src["data"]))
                     if src.get("type") == "url":
                         return url_to_tensor(src["url"])
+                    # inline base64 without source wrapper
+                    raw = item.get("data") or item.get("url") or ""
+                    if raw:
+                        return _load_image(raw) if raw.startswith("data:") else url_to_tensor(raw)
+
         elif isinstance(content, str):
             if content.startswith("data:"):
                 return _load_image(content)
-            # Plain URL string (many image-gen models return just a URL)
-            stripped = content.strip()
-            if stripped.startswith("http://") or stripped.startswith("https://"):
-                return url_to_tensor(stripped)
+            url = _url_in_str(content)
+            if url:
+                return url_to_tensor(url)
+
+        # Some providers put the image in a non-standard message field
+        # (e.g. tool_calls, or a vendor-specific key like "image_url")
+        for key, val in msg.items():
+            if key == "content":
+                continue
+            if isinstance(val, str):
+                if val.startswith("data:image"):
+                    return _load_image(val)
+                url = _url_in_str(val)
+                if url and any(ext in url for ext in (".png", ".jpg", ".jpeg", ".webp", ".gif")):
+                    return url_to_tensor(url)
+            if isinstance(val, dict):
+                inner_url = val.get("url", "")
+                if inner_url and (inner_url.startswith("data:") or _url_in_str(inner_url)):
+                    return _load_image(inner_url) if inner_url.startswith("data:") else url_to_tensor(inner_url)
 
     # DALL-E / OpenAI images endpoint style
     images = data.get("data") or []
@@ -155,15 +186,21 @@ def _extract_image_from_response(data: dict):
     # Build a diagnostic that reveals the actual content shape
     diag_parts = [f"Top-level keys: {list(data.keys())}"]
     if choices:
-        msg = choices[0].get("message", {})
+        choice = choices[0]
+        msg = choice.get("message") or {}
         c = msg.get("content")
         if isinstance(c, list):
-            diag_parts.append(f"choices[0].message.content is a list of {len(c)} block(s) with types: {[i.get('type') for i in c]}")
+            diag_parts.append(
+                f"choices[0].message.content list types: {[i.get('type') for i in c]}"
+            )
         elif isinstance(c, str):
-            diag_parts.append(f"choices[0].message.content is a string starting with: {c[:120]!r}")
+            diag_parts.append(f"choices[0].message.content string: {c[:120]!r}")
         else:
             diag_parts.append(f"choices[0].message.content type: {type(c).__name__}")
-        diag_parts.append(f"finish_reason: {choices[0].get('finish_reason')!r}")
+        other_keys = [k for k in msg if k not in ("content", "role")]
+        if other_keys:
+            diag_parts.append(f"other message keys: {other_keys}")
+        diag_parts.append(f"finish_reason: {choice.get('finish_reason')!r}")
 
     raise RuntimeError(
         "Could not extract an image from the API response. "
