@@ -244,13 +244,21 @@ class OpenRouterChatNode:
                     "default": 0,
                     "min": 0,
                     "max": 0xFFFFFFFFFFFFFFFF,
-                    "tooltip": "Reproducibility seed. Leave at 0 to omit (required for JAX-based models such as Gemini).",
+                    "tooltip": "Seed value used by ComfyUI to detect changes. Only sent to the API when send_seed is enabled.",
                 }),
             },
             "optional": {
                 "system_prompt": ("STRING", {"default": "", "multiline": True}),
                 "image": ("IMAGE", {
                     "tooltip": "Optional image for vision-capable models",
+                }),
+                "send_seed": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Forward the seed to the API for reproducibility. "
+                        "Leave OFF for models that do not support per-request seeds "
+                        "(JAX-based providers such as Gemini will error if a seed is sent)."
+                    ),
                 }),
                 "json_mode": ("BOOLEAN", {"default": False}),
                 "debug": ("BOOLEAN", {"default": False}),
@@ -271,6 +279,7 @@ class OpenRouterChatNode:
         seed,
         system_prompt="",
         image=None,
+        send_seed=False,
         json_mode=False,
         debug=False,
     ):
@@ -299,8 +308,8 @@ class OpenRouterChatNode:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-        if seed != 0:
-            payload["seed"] = seed  # omit when 0 — some providers (JAX/Gemini) reject per-request seeds
+        if send_seed and seed != 0:
+            payload["seed"] = seed
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
 
@@ -373,7 +382,7 @@ class OpenRouterImageGenNode:
                     "default": 0,
                     "min": 0,
                     "max": 0xFFFFFFFFFFFFFFFF,
-                    "tooltip": "Reproducibility seed. Leave at 0 to omit (required for JAX-based models such as Gemini).",
+                    "tooltip": "Seed value used by ComfyUI to detect changes. Only sent to the API when send_seed is enabled.",
                 }),
             },
             "optional": {
@@ -381,6 +390,14 @@ class OpenRouterImageGenNode:
                     "default": "",
                     "multiline": True,
                     "tooltip": "Negative prompt (supported by some models)",
+                }),
+                "send_seed": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "Forward the seed to the API for reproducibility. "
+                        "Leave OFF for models that do not support per-request seeds "
+                        "(JAX-based providers such as Gemini will error if a seed is sent)."
+                    ),
                 }),
                 "debug": ("BOOLEAN", {"default": False}),
             },
@@ -399,6 +416,7 @@ class OpenRouterImageGenNode:
         height,
         seed,
         negative_prompt="",
+        send_seed=False,
         debug=False,
     ):
         if not api_key.strip():
@@ -417,8 +435,8 @@ class OpenRouterImageGenNode:
             "max_width": width,
             "max_height": height,
         }
-        if seed != 0:
-            payload["seed"] = seed  # omit when 0 — some providers (JAX/Gemini) reject per-request seeds
+        if send_seed and seed != 0:
+            payload["seed"] = seed
 
         headers = {
             "Authorization": f"Bearer {api_key.strip()}",
