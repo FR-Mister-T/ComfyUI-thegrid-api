@@ -92,6 +92,22 @@ def _model_ids(
 
 
 # ---------------------------------------------------------------------------
+# Error helpers
+# ---------------------------------------------------------------------------
+
+def _raise_openrouter_error(resp):
+    try:
+        err = resp.json().get("error") or {}
+        message  = err.get("message") or resp.text
+        meta     = err.get("metadata") or {}
+        provider = meta.get("provider_name", "")
+        provider_tag = f" [{provider}]" if provider else ""
+        raise RuntimeError(f"OpenRouter error {resp.status_code}{provider_tag}: {message}")
+    except (ValueError, KeyError):
+        raise RuntimeError(f"OpenRouter error {resp.status_code}: {resp.text}")
+
+
+# ---------------------------------------------------------------------------
 # Image response helpers
 # ---------------------------------------------------------------------------
 
@@ -309,7 +325,7 @@ class OpenRouterChatNode:
         )
 
         if resp.status_code != 200:
-            raise RuntimeError(f"OpenRouter API error {resp.status_code}: {resp.text}")
+            _raise_openrouter_error(resp)
 
         data = resp.json()
         if debug:
@@ -420,7 +436,7 @@ class OpenRouterImageGenNode:
         )
 
         if resp.status_code != 200:
-            raise RuntimeError(f"OpenRouter ImageGen error {resp.status_code}: {resp.text}")
+            _raise_openrouter_error(resp)
 
         data = resp.json()
         if debug:
