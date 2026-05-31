@@ -226,6 +226,12 @@ OpenRouter Image Gen
 
 ---
 
+## Acknowledgements
+
+This project drew inspiration from **[ComfyUI-EACloudNodes](https://github.com/EnragedAntelope/ComfyUI-EACloudNodes)** by EnragedAntelope. Their clean implementation of ComfyUI v3-compatible cloud LLM nodes (Groq, OpenRouter) served as a reference for the node architecture, v3/v1 dual registration pattern, and retry/vision handling approach.
+
+---
+
 ## License
 
 MIT
